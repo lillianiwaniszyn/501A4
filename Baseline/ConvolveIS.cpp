@@ -1,119 +1,179 @@
-#include <stdint.h>
+
+#include <iostream>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <math.h>
 #include <fstream>
+#include <stdlib.h>
+#include <malloc.h>
+#include <cstdint>
 #include <iostream>
 #include <cstdio>
 #include <ctime>
 
+
 using namespace std;
 
 
-char ChunkID[4];
-int myChunkSize;
-char myFormat[2];
-char mySubChunk1ID[4];
-int mySubChunk1Size;
-int16_t audioFormat;
-int16_t myChannels;
-int sampleRate;	
-int byteRate;
+char *format;
+int chunkSize;
+char *chunkID;
+char *subChunk1ID;
+int size;
 int16_t blockAlign;
 int16_t bitsPerSample;
-char subChunk2ID[4];
-int subChunk2Size;
+int16_t audioFormat;
+int16_t numChannels;
+int sampleRate;
+char *subChunk2ID;
+int dataSize;
 short* fileData;
+int subChunk1Size;
+int byteRate;
 
-int size;
+float minRead = 0;
+float maxRead = 0;
 
-float *wavRead(char *filename);
+//function definitions
+void wavWrite(char *fileName, int numSamples, float *signal);
+float* wavRead(char *fileName, float *signal, int *Thesize);
 void convolve(float x[], int N, float h[], int M, float y[], int P);
-void wavWrite(char *filename, float *signal, int signalSize);
 
-
-int main(int argc, char **argv)
+int main(int argc, char* args[])
 {
 	std::clock_t start;
     double duration;
-
     start = std::clock();
 	if (argc!= 4){ //check if we hve 3 command line arguments
 		
 		printf("Please enter an input file, and IR file and an output file name." );
+		return 0;
 	}
-	else{
-	char *inputName = argv[1]; //first arg is input file
-	char *impulseResponseName = argv[2]; //IR file name
-	char *outputName = argv[3]; //output file name
-	
-	float *inputSignal = NULL;
-	float *IRSignal = NULL;
-	float *outputSignal = NULL;
-	int inputSignalSize;
-	int IRSignalSize;
-	int outputSignalSize;
-	
-	inputSignal = wavRead(inputName);
-	inputSignalSize = size;
-	printf("\n");
-	IRSignal = wavRead(impulseResponseName);
-	IRSignalSize = size;
-	outputSignalSize = inputSignalSize + IRSignalSize - 1;
-	outputSignal = new float[outputSignalSize];	
-	convolve(inputSignal, inputSignalSize, IRSignal, IRSignalSize, outputSignal, outputSignalSize);
-	wavWrite(outputName, outputSignal, outputSignalSize);
+
+	char *inputFileName = args[1];
+	char *IRFileName = args[2];
+	char *outputFileName = args[3];
+	float *inFileSignal;
+	int inFileSignalSize;
+	float *IRFileSignal;
+	int IRFileSignalSize;
+	inFileSignal = wavRead(inputFileName, inFileSignal, &size );
+	inFileSignalSize = size;
+	IRFileSignal = wavRead(IRFileName, IRFileSignal, &size);
+	IRFileSignalSize = size;
+	int outFileSignalSize = inFileSignalSize + IRFileSignalSize - 1;
+	float *outFileSignal = new float[outFileSignalSize];
+	printf("Convolving...");
+	convolve(inFileSignal, inFileSignalSize, IRFileSignal, IRFileSignalSize, outFileSignal, outFileSignalSize);
+	//scale output below
+	float min = 0, max = 0;
+	int i = 0;
+
+	for(i = 0; i < outFileSignalSize; i++)
+	{
+		if(outFileSignal[i] > max)
+			max = outFileSignal[i];
+		if(outFileSignal[i] < min)
+			min = outFileSignal[i];
 	}
-	
+
+	min = min * -1;
+	if(min > max)
+		max = min;
+	for(i = 0; i < outFileSignalSize; i++)
+	{
+		outFileSignal[i] = outFileSignal[i] / max;
+	}
+	wavWrite(outputFileName, outFileSignalSize, outFileSignal);
+	printf("Written to file: %s\n", outputFileName);
 	duration = ( std::clock() - start ) / (double) CLOCKS_PER_SEC;
 	printf("The duration of the program is: ");
 	std::cout<< duration <<" seconds";
 	return 0;
-	
+}
+
+void wavWrite(char *fileName, int numSamples, float *signal)
+{
+	ofstream outFile( fileName, ios::out | ios::binary);
+	//  Calculate the total number of bytes for the data chunk  
+	int chunkSize = numChannels * numSamples * (bitsPerSample / 8);
+	chunkID = "RIFF";
+	outFile.write( chunkID, 4);
+	outFile.write( (char*) &chunkSize, 4);
+	format = "WAVE";
+	outFile.write( format, 4);
+	outFile.write( subChunk1ID, 4);
+	subChunk1Size = 16;
+	outFile.write( (char*) &subChunk1Size, 4);
+	outFile.write( (char*) &audioFormat, 2);
+	outFile.write( (char*) &numChannels, 2);
+	outFile.write( (char*) &sampleRate, 4);
+	outFile.write( (char*) &byteRate, 4);
+	outFile.write( (char*) &blockAlign, 2);
+	outFile.write( (char*) &bitsPerSample, 2);
+	outFile.write( subChunk2ID, 4);
+	dataSize = numSamples * 2;
+	outFile.write( (char*)&dataSize, 4);
+	int16_t val;
+	for(int i = 0; i < numSamples; i++)
+	{
+		val = (int16_t)(signal[i] * (pow(2,15) - 1));
+		outFile.write((char*)&val, 2);
+	}
+	outFile.close();
 }
 
 
-
-	
-float *wavRead (char *filename) 
+float* wavRead(char *fileName, float *signal, int *Thesize)
 {
-	float *signal =NULL;
-	ifstream inFile( filename, ios::in | ios::binary);
-	inFile.seekg(ios::beg);
-	inFile.read(ChunkID, 4);
-	inFile.read((char*) &myChunkSize, 4); // read the ChunkSize
-	inFile.read(myFormat, 4);
-	inFile.read(mySubChunk1ID, 4);
-	inFile.read((char*) &mySubChunk1Size, 4);
-	inFile.read((char*) &audioFormat, 2);
-	inFile.read((char*) &myChannels, 2);
-	inFile.read((char*) &sampleRate, 4);
-	inFile.read((char*) &byteRate, 4);
-	inFile.read((char*) &blockAlign, 2);
-	inFile.read((char*) &bitsPerSample, 2);
-	if (mySubChunk1Size == 18) {
-		inFile.seekg(2, ios::cur);
+	ifstream inputFile( fileName, ios::in | ios::binary);
+	inputFile.seekg(ios::beg);
+	chunkID = new char[4];
+	inputFile.read( chunkID, 4);
+	inputFile.read( (char*) &chunkSize, 4);
+	format = new char[4];
+	inputFile.read( format, 4);
+	subChunk1ID = new char[4];
+	inputFile.read( subChunk1ID, 4);
+	inputFile.read( (char*) &subChunk1Size, 4);
+	inputFile.read( (char*) &audioFormat, 2);
+	inputFile.read( (char*) &numChannels, 2);
+	inputFile.read( (char*) &sampleRate, 4);
+	inputFile.read( (char*) &byteRate, 4);
+	inputFile.read( (char*) &blockAlign, 2);
+	inputFile.read( (char*) &bitsPerSample, 2);
+
+	if(subChunk1Size == 18)
+	{
+		char *garbage;
+		garbage = new char[2];
+		inputFile.read( garbage, 2);
 	}
-	inFile.read(subChunk2ID, 4);
-	inFile.read((char*)&subChunk2Size, 4);
-	size = subChunk2Size / 2;
-	
-	short *data = new short[size];
-	for (int i = 0; i < size; i++) {
-		inFile.read((char *) &data[i], 2);
+
+	subChunk2ID = new char[4];
+	inputFile.read( subChunk2ID, 4);
+	//DataSize
+	inputFile.read( (char*)&dataSize, 4);
+	//GetData
+	*Thesize = dataSize / 2;
+	int size = dataSize / 2;
+	fileData = new short[size];
+	for(int j = 0 ; j < size; j++)
+	{
+		inputFile.read((char*) &fileData[j], 2);
 	}
-	inFile.close();
-	short sample;
+
+	short val;
 	signal = new float[size];
-	printf("Size: %d\n", size);
-	for (int i = 0; i < size; i++) {
-		sample = data[i];
-		signal[i] = (sample * 1.0) / (pow(2.0, 15.0) - 1);
-		if (signal[i] < -1.0)
+	for(int i = 0; i < size; i++)
+	{
+		val = fileData[i];
+		signal[i] = (val * 1.0) / (pow(2,15) - 1);
+		if(signal[i] < -1.0)
 			signal[i] = -1.0;
+
 	}
-	return signal;	
+	inputFile.close();
+	return signal;
 }
 
 
@@ -162,38 +222,4 @@ void convolve(float x[], int N, float h[], int M, float y[], int P)
 
 
 
-void wavWrite(char *filename, float *signal, int sigSize)
-{
 
-	ofstream outFile(filename, ios::out | ios::binary);
-	
-	// File corrupted without hardcoded values
-	char *ChunkID = "RIFF";
-	char *format = "WAVE";
-	// PCM = 18 was unnecessary
-	mySubChunk1Size = 16;
-	subChunk2Size = myChannels * sigSize * (bitsPerSample / 8);
-	myChunkSize = subChunk2Size + 36;
-	outFile.write(ChunkID, 4);
-	outFile.write((char*) &myChunkSize, 4);
-	outFile.write(format, 4);
-	outFile.write(mySubChunk1ID, 4);
-	outFile.write((char*) &mySubChunk1Size, 4);
-	outFile.write((char*) &audioFormat, 2);
-	outFile.write((char*) &myChannels, 2);
-	outFile.write((char*) &sampleRate, 4);
-	outFile.write((char*) &byteRate, 4);
-	outFile.write((char*) &blockAlign, 2);
-	outFile.write((char*) &bitsPerSample, 2);
-	outFile.write(subChunk2ID, 4);
-	outFile.write((char*)&subChunk2Size, 4);
-	int16_t sample;
-	
-	// converting float to int between -2^15 to 2^15 - 1
-	for(int i = 0; i < sigSize; i++)
-	{
-		sample = (int16_t)(signal[i] * (pow(2.0, 15.0) - 1));
-		outFile.write((char*)&sample, 2);
-	}
-	outFile.close();
-}
