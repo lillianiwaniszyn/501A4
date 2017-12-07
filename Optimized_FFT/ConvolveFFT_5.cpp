@@ -189,31 +189,39 @@ void convolve(float x[], int N, float h[], int M, float y[], int P)
 	int i = 0;
 	// For FFT we need array size of a power of 2
 	while (myArraySize < P) {
-		myArraySize *= 2;
+		myArraySize += myArraySize;
 	}
 	float *paddedInput = new float[2 * myArraySize];
 	for (i = 0; i < (N * 2); i+=2) {
 		paddedInput[i] = x[i/2];
 		paddedInput[i+1] = 0;
 	}
-	float *paddedImpulseResponse = new float[2 * myArraySize];
-	for (; i <myArraySize; i+=2) {
+	for (; i <myArraySize-1; i+=2) {
 		paddedInput[i] = 0;
-		paddedInput[i+1] = 0;
-		paddedImpulseResponse[i] = 0;
-		paddedImpulseResponse[i+1] = 0;
+		paddedInput[i+1] = 0; //changed code here. unrolled loop once.
+	}
+	if (i == myArraySize-1){
+		paddedInput[myArraySize-1] = myArraySize-1;
 	}
 	
-
-	for (i = 0; i < M; i+=2) {
-		paddedImpulseResponse[i] = h[i];
+	float *paddedImpulseResponse = new float[2 * myArraySize];
+	for (i = 0; i < (M * 2); i+=2) {
+		paddedImpulseResponse[i] = h[i/2];
 		paddedImpulseResponse[i+1] = 0;
 	}
+	for (; i < myArraySize-1; i+=2) {
+		paddedImpulseResponse[i] = 0;
+		paddedImpulseResponse[i+1] = 0; //unrolled second loop
+	}
+	if (i == myArraySize-1){
+		paddedImpulseResponse[myArraySize-1] = myArraySize-1;
+	}
+		
 
 	
 	float *paddedOutput = new float[2 * myArraySize];
-	for (i = 0; i < myArraySize; i++) {
-		paddedOutput[i] = 0;
+	for (i = 0; i < myArraySize; i++) { 
+		paddedOutput[i] = 0.0; // used proper format for constraints
 	}
 	fft((paddedInput - 1), myArraySize, 1);
 	fft((paddedImpulseResponse - 1), myArraySize, 1);
@@ -240,6 +248,7 @@ void fft(float data[], int nn, int isign)
 
     n = nn << 1;
     j = 1;
+
     for (i = 1; i < n; i += 2) {
 		if (j > i) {
 			SWAP(data[j], data[i]);
@@ -263,7 +272,6 @@ void fft(float data[], int nn, int isign)
 		wr = 1.0;
 		wi = 0.0;
 		for (m = 1; m < mmax; m += 2) {
-			
 			for (i = m; i <= n; i += istep) {
 				j = i + mmax;
 				tempr = wr * data[j] - wi * data[j+1];
