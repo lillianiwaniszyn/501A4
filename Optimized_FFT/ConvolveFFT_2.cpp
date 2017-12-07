@@ -196,13 +196,17 @@ void convolve(float x[], int N, float h[], int M, float y[], int P)
 		paddedInput[i] = x[i/2];
 		paddedInput[i+1] = 0;
 	}
-	for (; i <myArraySize; i++) {
+	for (; i <myArraySize-1; i+=2) {
 		paddedInput[i] = 0;
+		paddedInput[i+1] = 0; //changed code here. unrolled loop once.
+	}
+	if (i == myArraySize-1){
+		paddedInput[myArraySize-1] = myArraySize-1;
 	}
 	
 	float *paddedImpulseResponse = new float[2 * myArraySize];
-	for (i = 0; i < M; i+=2) {
-		paddedImpulseResponse[i] = h[i];
+	for (i = 0; i < (M * 2); i+=2) {
+		paddedImpulseResponse[i] = h[i/2];
 		paddedImpulseResponse[i+1] = 0;
 	}
 	for (; i < myArraySize; i++) {
